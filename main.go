@@ -1,14 +1,28 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/valyala/fastjson"
+
+	"log"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
 )
 
 func HandleRequest(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+
 	ApiResponse := events.APIGatewayProxyResponse{}
 	// Switch for identifying the HTTP request
 	switch request.HTTPMethod {
@@ -34,6 +48,7 @@ func HandleRequest(request events.APIGatewayProxyRequest) (events.APIGatewayProx
 
 	}
 	// Response
+
 	return ApiResponse, nil
 }
 
@@ -56,5 +71,55 @@ func Fibonacci(n uint) (uint64, error) {
 }
 
 func main() {
+	otel.SetTracerProvider(sdktrace.NewTracerProvider())
+	tp := InitTracerProvider()
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down tracer provider: %v", err)
+		}
+	}()
+	_, span := otel.Tracer("my-tracer").Start(context.Background(), "my-span") //TODO Add names for tracer and span
+	span.SetAttributes(
+		attribute.String("my-key-1", "my-value-1")) //TODO Add attributes
+
+	defer span.End()
 	lambda.Start(HandleRequest)
+
+	//if err != nil {
+	//		span.SetStatus(codes.Error, err.Error())
+	//}
+	span.SetStatus(codes.Ok, "successful")
+}
+
+func InitTracerProvider() *sdktrace.TracerProvider {
+	ctx := context.Background()
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceNameKey.String("go-quickstart"), //TODO Replace with the name of your application
+			semconv.ServiceVersionKey.String("1.0.1"),      //TODO Replace with the version of your application
+		),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create resource: %v", err)
+	}
+
+	exporter, err := otlptracehttp.New(
+		ctx,
+		otlptracehttp.WithEndpoint(os.Getenv("URL")),                                                         //TODO Replace <URL> to your SaaS/Managed-URL as mentioned in the next step
+		otlptracehttp.WithURLPath(os.Getenv("URL_PATH")),                                                     //TODO Replace <URL_PATH> to your SaaS/Managed-URL-PATH as mentioned in the next step
+		otlptracehttp.WithHeaders(map[string]string{"Authorization": "Api-Token " + os.Getenv("API_TOKEN")}), //TODO Replace <TOKEN> with your API Token as mentioned in the next step
+	)
+	if err != nil {
+		log.Fatalf("Failed to create OTLP exporter: %v", err)
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithBatcher(exporter),
+	)
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	return tp
 }
