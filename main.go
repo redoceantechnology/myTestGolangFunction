@@ -10,6 +10,7 @@ import (
 	"github.com/valyala/fastjson"
 
 	"log"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -89,6 +90,7 @@ func main() {
 	//		span.SetStatus(codes.Error, err.Error())
 	//}
 	span.SetStatus(codes.Ok, "successful")
+	time.Sleep(8 * time.Second)
 }
 
 func InitTracerProvider() *sdktrace.TracerProvider {
