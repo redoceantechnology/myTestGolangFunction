@@ -10,11 +10,14 @@ import (
 	"github.com/valyala/fastjson"
 
 	"log"
-	"time"
+	//"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-lambda-go/otellambda"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-lambda-go/otellambda/xrayconfig"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+
+	//"go.opentelemetry.io/otel/attribute"
+	//"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -72,28 +75,6 @@ func Fibonacci(n uint) (uint64, error) {
 }
 
 func main() {
-	otel.SetTracerProvider(sdktrace.NewTracerProvider())
-	tp := InitTracerProvider()
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
-		}
-	}()
-	_, span := otel.Tracer("my-tracer").Start(context.Background(), "my-span") //TODO Add names for tracer and span
-	span.SetAttributes(
-		attribute.String("my-key-1", "my-value-1")) //TODO Add attributes
-
-	defer span.End()
-	lambda.Start(HandleRequest)
-
-	//if err != nil {
-	//		span.SetStatus(codes.Error, err.Error())
-	//}
-	span.SetStatus(codes.Ok, "successful")
-	time.Sleep(8 * time.Second)
-}
-
-func InitTracerProvider() *sdktrace.TracerProvider {
 	ctx := context.Background()
 
 	res, err := resource.New(ctx,
@@ -123,5 +104,12 @@ func InitTracerProvider() *sdktrace.TracerProvider {
 	)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-	return tp
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down tracer provider: %v", err)
+		}
+	}()
+
+	lambda.Start(otellambda.InstrumentHandler(HandleRequest, xrayconfig.WithRecommendedOptions(tp)...))
+
 }
