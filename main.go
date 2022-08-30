@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -23,6 +24,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func HandleRequest(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
@@ -32,9 +34,12 @@ func HandleRequest(request events.APIGatewayProxyRequest) (events.APIGatewayProx
 	switch request.HTTPMethod {
 	case "GET":
 		// Obtain the QueryStringParameter
-		name := request.QueryStringParameters["name"]
-		if name != "" {
-			ApiResponse = events.APIGatewayProxyResponse{Body: "Hey " + name + " welcome! ", StatusCode: 200}
+		number, _ := strconv.ParseUint(request.QueryStringParameters["number"], 10, 32)
+
+		if number != 0 {
+			fibo, _ := Fibonacci(uint(number))
+
+			ApiResponse = events.APIGatewayProxyResponse{Body: "Hey " + strconv.FormatUint(fibo, 10) + " welcome! ", StatusCode: 200}
 		} else {
 			ApiResponse = events.APIGatewayProxyResponse{Body: "Error: Query Parameter name missing", StatusCode: 500}
 		}
@@ -58,6 +63,7 @@ func HandleRequest(request events.APIGatewayProxyRequest) (events.APIGatewayProx
 
 // Fibonacci returns the n-th fibonacci number.
 func Fibonacci(n uint) (uint64, error) {
+
 	if n <= 1 {
 		return uint64(n), nil
 	}
@@ -109,7 +115,8 @@ func main() {
 			log.Printf("Error shutting down tracer provider: %v", err)
 		}
 	}()
-
+	var span trace.Span
+	ctx, span = otel.Tracer("go-quickstart").Start(ctx, "lambda.Start")
 	lambda.Start(otellambda.InstrumentHandler(HandleRequest, xrayconfig.WithRecommendedOptions(tp)...))
-
+	defer span.End()
 }
