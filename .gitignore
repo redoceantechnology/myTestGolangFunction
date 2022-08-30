@@ -20,3 +20,8 @@ main
 
 config.json
 vendor/
+output/
+test.sh
+deploy.sh
+
+tmp/
